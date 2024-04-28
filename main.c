@@ -8,8 +8,12 @@
 #define RESET "\x1B[0m"
 #define RED "\x1B[91m"
 #define BOLD "\x1B[1m"
+#define UNDERLINE "\x1B[4m"
 #define ERROR RED BOLD "error: " RESET
-#define report(...) fprintf(stderr, ERROR __VA_ARGS__)
+#define raise(fmt, ...) do {                                    \
+    fprintf(stderr, ERROR fmt "\n" __VA_OPT__(,) __VA_ARGS__);  \
+    exit(-1);                                                   \
+} while (0);
 
 const char* run(
     const char* body,
@@ -23,10 +27,28 @@ int main(int argc, const char** argv) {
     const char* path = NULL;
     size_t len = 0;
     for (size_t i = 1; i < (size_t)argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+            printf(
+                "\n"
+                "An interpreter for Brainfuck programs. (https://en.wikipedia.org/wiki/Brainfuck)\n"
+                "\n"
+                "usage:\t" BOLD "brainfuck" RESET " [-n " UNDERLINE "cells" RESET "] [" UNDERLINE "filename" RESET "]\n"
+                "\n"
+                "arguments:\n"
+                "\t" "cells" RESET "\t\tthe number of cells in user data (defaults to 30000)\n"
+                "\t" "filename" RESET "\tthe source file (reads from stdin if unspecified)\n"
+                "\n"
+                "This implementation uses one byte per cell, interpreted like a C one-byte unsigned integer: "
+                "increments and decrements are performed modulo 256 (by 'wrapping-around'). "
+                "Moving the pointer past one end of the tape makes it wrap around to the other side.\n"
+                "\n"
+            );
+            return 0;
+        }
+
         if (argv[i][0] != '-') {
             if (path != NULL) {
-                report("unexpected argument: '%s\n'", argv[i]);
-                return -1;
+                raise("unexpected argument: '%s'", argv[i]);
             }
             path = argv[i];
             continue;
@@ -34,8 +56,7 @@ int main(int argc, const char** argv) {
 
         if (argv[i][1] == 'n') {
             if (len != 0) {
-                report("unexpected option: '%s'\n", argv[i]);
-                return -1;
+                raise("unexpected option: '%s'", argv[i]);
             }
 
             const char* len_string;
@@ -43,8 +64,7 @@ int main(int argc, const char** argv) {
                 len_string = argv[i] + 3;
             } else {
                 if (argv[i][2] != '\0') {
-                    report("unexpected option: '%s'\n", argv[i]);
-                    return -1;
+                    raise("unexpected option: '%s'", argv[i]);
                 }
                 len_string = argv[i + 1];
                 i++;
@@ -60,8 +80,7 @@ int main(int argc, const char** argv) {
                 || errno == ERANGE
                 || parsed_len == 0
             ) {
-                report("invalid number of cells: '%s'\n", len_string);
-                return -1;
+                raise("invalid number of cells: '%s'", len_string);
             }
             len = (size_t)parsed_len;
         }
@@ -71,8 +90,7 @@ int main(int argc, const char** argv) {
     if (path != NULL) {
         file = fopen(path, "r");
         if (file == NULL) {
-            report("failed to open file: %s (errno %d)", strerror(errno), errno);
-            return -1;
+            raise("failed to open file: %s (errno %d)", strerror(errno), errno);
         }
     } else {
         file = stdin;
@@ -89,15 +107,13 @@ int main(int argc, const char** argv) {
         next_read_len *= 2;
         source_code = realloc(source_code, source_code_len + next_read_len + 1);
         if (source_code == NULL) {
-            report("out of memory\n");
-            return -1;
+            raise("out of memory");
         }
         size_t nread = fread(source_code + source_code_len, 1, next_read_len, file);
         source_code_len += nread;
         if (nread != next_read_len) {
             if (ferror(file)) {
-                report("failed to read file\n");
-                return -1;
+                raise("failed to read file");
             }
         }
 
@@ -109,16 +125,10 @@ int main(int argc, const char** argv) {
 
     unsigned char* data = calloc(len, 1);
     if (data == NULL) {
-        report("out of memory\n");
-        return -1;
+        raise("out of memory");
     }
 
     run(source_code, data, len, 0, true);
-    // printf("== source code ==\n");
-    // for (size_t i = 0; source_code[i] != '\0'; i++) {
-    //     printf("%x ", source_code[i]);
-    // }
-    // printf("\n");
 
     free(data);
     free(source_code);
@@ -173,8 +183,7 @@ const char* run(
                 int c = getchar();
                 if (c == EOF) {
                     if (ferror(stdin)) {
-                        report("failed to read from stdin\n");
-                        exit(-1);
+                        raise("failed to read from stdin");
                     }
                     data[index] = 0;
                 } else {
@@ -197,13 +206,15 @@ const char* run(
                     }
                     ip++;
                     if (*ip == '\0') {
-                        report("unbalanced bracket\n");
-                        exit(-1);
+                        raise("unbalanced brackets");
                     }
                 } while (depth != 0);
                 break;
 
             case ']':
+                if (is_root) {
+                    raise("unbalanced brackets");
+                }
                 if (data[index]) {
                     ip = body;
                     continue;
@@ -220,15 +231,13 @@ const char* run(
                 break;
 
             default:
-                report("invalid character: '%c' (ASCII code 0x%x)\n", *ip, (int)*ip);
-                exit(-1);
+                raise("invalid character: '%c' (ASCII code 0x%x)", *ip, (int)*ip);
                 break;
         }
     }
 
     if (!is_root) {
-        report("unbalanced brackets\n");
-        exit(-1);
+        raise("unbalanced brackets");
     }
     return ip;
 }
