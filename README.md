@@ -1,11 +1,4 @@
----
-runme:
-  id: 01HWKEC998159S8A296DYGHPR1
-  version: v3
----
-
 # brainfuck
-
 
 An interpreter for [Brainfuck](https://en.wikipedia.org/wiki/Brainfuck) programs.
 
